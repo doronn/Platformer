@@ -1,9 +1,9 @@
 ﻿using System;
 using UnityEngine;
 
-namespace PlayerController
+namespace Scripts.PlayerController.Platformer
 {
-    public class PlayerController : MonoBehaviour
+    public class PlayerController : MonoBehaviour, IPlayerController
     {
         public PlayerProperties playerProperties; // The scriptable object with the gameplay properties
         public float _movementInterpolationSpeed;
@@ -16,6 +16,7 @@ namespace PlayerController
         private Vector3 _nextWantedPosition = Vector3.zero;
 
         private bool _didRequestJump = false;
+        private float _horizontalInput;
 
         private void Start()
         {
@@ -25,17 +26,50 @@ namespace PlayerController
 
         private void FixedUpdate()
         {
-            // Get input for horizontal movement
-            float horizontalInput = Input.GetAxis("Horizontal");
-            Vector3 moveDirection = new Vector3(horizontalInput, 0f, 0f);
+            HorizontalMovementVelocityUpdate();
 
-            if (_isGrounded || Math.Abs(horizontalInput) > 0.5f || _velocity.y < 0)
+            HandleJumpRequested();
+
+            ApplyGravity();
+            
+            UpdateVelocityAndNextPosition();
+
+            CheckCollisions();
+        }
+
+        private void CheckCollisions()
+        {
+            PlayerCollisionCheck(Vector3.up, playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.left, playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.right, playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.down, playerProperties.groundLayer);
+        }
+
+        private void UpdateVelocityAndNextPosition()
+        {
+            _currentVelocity = _velocity * Time.deltaTime;
+            _nextWantedPosition += _currentVelocity;
+        }
+
+        private void ApplyGravity()
+        {
+            if (!_isGrounded)
             {
-                _velocity.x = horizontalInput * playerProperties.moveSpeed;
+                // Apply gravity to the player
+                _velocity += Vector3.down * playerProperties.gravity;
             }
-            // _nextWantedPosition += moveDirection * (playerProperties.moveSpeed * Time.deltaTime);
+        }
 
-            // Get input for jumping
+        private void HorizontalMovementVelocityUpdate()
+        {
+            if (_isGrounded || Math.Abs(_horizontalInput) > 0.5f || _velocity.y < 0)
+            {
+                _velocity.x = _horizontalInput * playerProperties.moveSpeed;
+            }
+        }
+
+        private void HandleJumpRequested()
+        {
             if (_didRequestJump && (_isGrounded || _jumpsRemaining > 0))
             {
                 _velocity.y = playerProperties.jumpForce;
@@ -43,57 +77,45 @@ namespace PlayerController
             }
 
             _didRequestJump = false;
-            
-            if (!_isGrounded)
-            {
-                // Apply gravity to the player
-                _velocity += Vector3.down * playerProperties.gravity;
-            }
-            
-            _currentVelocity = _velocity * Time.deltaTime;
-            _nextWantedPosition += _currentVelocity;
-            PlayerCollisionCheck(Vector3.up, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.left, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.right, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.down, playerProperties.groundLayer);
         }
 
         private void Update()
         {
-            _didRequestJump |= Input.GetButtonDown("Jump");
             var currentTransformPosition = _playerTransform.localPosition;
             currentTransformPosition = Vector3.Lerp(currentTransformPosition, _nextWantedPosition, _movementInterpolationSpeed * Time.deltaTime);
             _playerTransform.localPosition = currentTransformPosition;
         }
 
-        private void PlayerCollisionCheck(Vector3 direction, int collisionLayerMask)
+        private void PlayerCollisionCheck(Vector3 checkDirection, int collisionLayerMask)
         {
             // Check if the player is grounded by casting a ray down from the player's position
-            var velocityInDirection = Vector3.Dot(direction, _velocity);
+            var velocityInDirection = Vector3.Dot(checkDirection, _velocity);
             var velocityFactorToAdd = velocityInDirection < 0 ? velocityInDirection * Time.deltaTime : 0;
 
-            var groundCheckDistance = Math.Abs(Vector3.Dot(direction, playerProperties.CharacterSize) * 0.5f);
+            var groundCheckDistance = Math.Abs(Vector3.Dot(checkDirection, playerProperties.CharacterSize) * 0.5f);
             var rayDistance = groundCheckDistance + velocityFactorToAdd;
-            var rayEndPosition = _nextWantedPosition + direction * rayDistance;
-            if (Physics.Raycast(_nextWantedPosition, direction, out var hit, rayDistance, collisionLayerMask))
+            var rayEndPosition = _nextWantedPosition + checkDirection * rayDistance;
+            if (Physics.Raycast(_nextWantedPosition, checkDirection, out var hit, rayDistance, collisionLayerMask))
             {
                 // Set the player as grounded if it is falling onto the platform from above
                 Debug.DrawLine(_nextWantedPosition, hit.point, Color.blue);
                 Debug.DrawLine(hit.point, rayEndPosition, Color.red);
-                var hitHorizontalForHorizontalDirectionCheck = hit.normal.x > 0 != direction.x > 0;
-                var hitVerticalForVerticalDirectionCheck = hit.normal.y > 0 != direction.y > 0;
+                var hitHorizontalForHorizontalDirectionCheck = hit.normal.x > 0 != checkDirection.x > 0;
+                var hitVerticalForVerticalDirectionCheck = hit.normal.y > 0 != checkDirection.y > 0;
                 if (hitHorizontalForHorizontalDirectionCheck || hitVerticalForVerticalDirectionCheck)
                 {
-                    _isGrounded = direction.y < 0;
+                    _isGrounded = checkDirection.y < 0;
                     if (_isGrounded)
                     {
                         _jumpsRemaining = playerProperties.maxJumps;
+                        // var platformTransform = hit.transform.parent;
+                        // SetPlayerParentObject(platformTransform);
                     }
 
                     // Set the player's Y position to the Y position of the ground collider
                     var position = _nextWantedPosition;
-                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).x + -direction.x * groundCheckDistance : position.x;
-                    var nextYPosition = hitVerticalForVerticalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).y + -direction.y * groundCheckDistance : position.y;
+                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).x + -checkDirection.x * groundCheckDistance : position.x;
+                    var nextYPosition = hitVerticalForVerticalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).y + -checkDirection.y * groundCheckDistance : position.y;
                     position =
                         new Vector3(nextXPosition, nextYPosition, position.z);
                     _nextWantedPosition = position;
@@ -101,18 +123,42 @@ namespace PlayerController
                     if (hitVerticalForVerticalDirectionCheck)
                     {
                         _velocity.y = 0f;
+                        _currentVelocity.y = 0;
                     }
                 }
                 else
                 {
                     _isGrounded = false;
+                    // SetPlayerParentObject(null);
                 }
             }
             else
             {
                 Debug.DrawLine(_nextWantedPosition, rayEndPosition, Color.blue);
                 _isGrounded = false;
+                // SetPlayerParentObject(null);
             }
+        }
+
+        private void SetPlayerParentObject(Transform platformTransform)
+        {
+            if (_playerTransform.parent == platformTransform)
+            {
+                return;
+            }
+
+            var lastLocalPosition = _playerTransform.localPosition;
+            _playerTransform.SetParent(platformTransform, true);
+        }
+
+        public void SetHorizontalInput(float horizontalInput)
+        {
+            _horizontalInput = horizontalInput;
+        }
+
+        public void RequestJump()
+        {
+            _didRequestJump = true;
         }
     }
 }

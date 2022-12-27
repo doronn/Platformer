@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace PlayerController
+namespace Scripts.PlayerController.Platformer
 {
     [CreateAssetMenu(menuName = "Player Properties")]
     public class PlayerProperties : ScriptableObject
