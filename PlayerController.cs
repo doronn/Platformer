@@ -8,20 +8,24 @@ namespace Scripts.PlayerController.Platformer
         public PlayerProperties playerProperties; // The scriptable object with the gameplay properties
         public float _movementInterpolationSpeed;
 
+        [SerializeField]
         private Transform _playerTransform;      // Reference to the player's transform component
+        private Transform _originalParent;
         private bool _isGrounded = false;        // Flag to track whether the player is grounded
         private int _jumpsRemaining = 0;         // The number of jumps remaining
         private Vector3 _velocity = Vector3.zero; // The current velocity of the 
         private Vector3 _currentVelocity = Vector3.zero;
         private Vector3 _nextWantedPosition = Vector3.zero;
+        // private Vector3 _myGroundInitialPosition = Vector3.zero;
+        // private Vector3 _myGroundPositionOffset = Vector3.zero;
 
         private bool _didRequestJump = false;
         private float _horizontalInput;
 
         private void Start()
         {
-            _playerTransform = GetComponent<Transform>();
             _nextWantedPosition = _playerTransform.localPosition;
+            _originalParent = _playerTransform.parent;
         }
 
         private void FixedUpdate()
@@ -35,7 +39,17 @@ namespace Scripts.PlayerController.Platformer
             UpdateVelocityAndNextPosition();
 
             CheckCollisions();
+
+            // AccountForGroundMovement();
         }
+
+        /*private void AccountForGroundMovement()
+        {
+            if (_isGrounded)
+            {
+                _nextWantedPosition += _myGroundPositionOffset;
+            }
+        }*/
 
         private void CheckCollisions()
         {
@@ -49,6 +63,7 @@ namespace Scripts.PlayerController.Platformer
         {
             _currentVelocity = _velocity * Time.deltaTime;
             _nextWantedPosition += _currentVelocity;
+            // _myGroundPositionOffset = Vector3.zero;
         }
 
         private void ApplyGravity()
@@ -95,48 +110,69 @@ namespace Scripts.PlayerController.Platformer
             var groundCheckDistance = Math.Abs(Vector3.Dot(checkDirection, playerProperties.CharacterSize) * 0.5f);
             var rayDistance = groundCheckDistance + velocityFactorToAdd;
             var rayEndPosition = _nextWantedPosition + checkDirection * rayDistance;
+            var directionCheckIsDown = checkDirection.y < 0;
             if (Physics.Raycast(_nextWantedPosition, checkDirection, out var hit, rayDistance, collisionLayerMask))
             {
                 // Set the player as grounded if it is falling onto the platform from above
                 Debug.DrawLine(_nextWantedPosition, hit.point, Color.blue);
                 Debug.DrawLine(hit.point, rayEndPosition, Color.red);
-                var hitHorizontalForHorizontalDirectionCheck = hit.normal.x > 0 != checkDirection.x > 0;
-                var hitVerticalForVerticalDirectionCheck = hit.normal.y > 0 != checkDirection.y > 0;
+                var hitHorizontalForHorizontalDirectionCheck = hit.normal.x < 0 != checkDirection.x < 0;
+                var hitVerticalForVerticalDirectionCheck = hit.normal.y < 0 != directionCheckIsDown;
                 if (hitHorizontalForHorizontalDirectionCheck || hitVerticalForVerticalDirectionCheck)
                 {
-                    _isGrounded = checkDirection.y < 0;
+                    var wasAlreadyGrounded = _isGrounded;
+                    if (directionCheckIsDown)
+                    {
+                        _isGrounded = _velocity.y <= 0;
+                    }
+
                     if (_isGrounded)
                     {
                         _jumpsRemaining = playerProperties.maxJumps;
-                        // var platformTransform = hit.transform.parent;
-                        // SetPlayerParentObject(platformTransform);
+                        /*if (!wasAlreadyGrounded)
+                        {
+                            _myGroundInitialPosition = hit.transform.position;
+                        }
+                        else
+                        {
+                            var curentGroundPosition = hit.transform.position;
+                            _myGroundPositionOffset = curentGroundPosition - _myGroundInitialPosition;
+                            _myGroundInitialPosition = curentGroundPosition;
+                        }*/
                     }
 
-                    // Set the player's Y position to the Y position of the ground collider
+                    // Set the player's X, Y positions to the X, Y positions of the collision point
                     var position = _nextWantedPosition;
-                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).x + -checkDirection.x * groundCheckDistance : position.x;
-                    var nextYPosition = hitVerticalForVerticalDirectionCheck ? hit.collider.ClosestPointOnBounds(hit.point).y + -checkDirection.y * groundCheckDistance : position.y;
+                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck
+                        ? hit.collider.ClosestPointOnBounds(hit.point).x + -checkDirection.x * groundCheckDistance
+                        : position.x;
+                    
+                    var shouldBlockOnVerticalCollision = hitVerticalForVerticalDirectionCheck && (!directionCheckIsDown || _isGrounded);
+                    var nextYPosition = shouldBlockOnVerticalCollision
+                        ? hit.collider.ClosestPointOnBounds(hit.point).y + -checkDirection.y * groundCheckDistance
+                        : position.y;
                     position =
                         new Vector3(nextXPosition, nextYPosition, position.z);
                     _nextWantedPosition = position;
 
-                    if (hitVerticalForVerticalDirectionCheck)
+                    if (shouldBlockOnVerticalCollision)
                     {
                         _velocity.y = 0f;
                         _currentVelocity.y = 0;
                     }
                 }
-                else
+                else if (directionCheckIsDown)
                 {
                     _isGrounded = false;
-                    // SetPlayerParentObject(null);
                 }
             }
             else
             {
                 Debug.DrawLine(_nextWantedPosition, rayEndPosition, Color.blue);
-                _isGrounded = false;
-                // SetPlayerParentObject(null);
+                if (directionCheckIsDown)
+                {
+                    _isGrounded = false;
+                }
             }
         }
 
