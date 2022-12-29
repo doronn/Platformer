@@ -1,16 +1,12 @@
 ﻿using System;
 using UnityEngine;
 
-namespace Scripts.PlayerController.Platformer
+namespace Scripts.Player.Platformer
 {
-    public class PlayerController : MonoBehaviour, IPlayerController
+    public class PlayerController : MonoBehaviour, IPlayerController, IReadPlayerValues
     {
         public PlayerProperties playerProperties; // The scriptable object with the gameplay properties
-        public float _movementInterpolationSpeed;
 
-        [SerializeField]
-        private Transform _playerTransform;      // Reference to the player's transform component
-        private Transform _originalParent;
         private bool _isGrounded = false;        // Flag to track whether the player is grounded
         private int _jumpsRemaining = 0;         // The number of jumps remaining
         private Vector3 _velocity = Vector3.zero; // The current velocity of the 
@@ -21,13 +17,7 @@ namespace Scripts.PlayerController.Platformer
 
         private bool _didRequestJump = false;
         private float _horizontalInput;
-
-        private void Start()
-        {
-            _nextWantedPosition = _playerTransform.localPosition;
-            _originalParent = _playerTransform.parent;
-        }
-
+        
         private void FixedUpdate()
         {
             HorizontalMovementVelocityUpdate();
@@ -85,6 +75,10 @@ namespace Scripts.PlayerController.Platformer
 
         private void HandleJumpRequested()
         {
+            if (!_isGrounded && _jumpsRemaining >= playerProperties.maxJumps)
+            {
+                _jumpsRemaining = playerProperties.maxJumps - 1;
+            }
             if (_didRequestJump && (_isGrounded || _jumpsRemaining > 0))
             {
                 _velocity.y = playerProperties.jumpForce;
@@ -92,13 +86,6 @@ namespace Scripts.PlayerController.Platformer
             }
 
             _didRequestJump = false;
-        }
-
-        private void Update()
-        {
-            var currentTransformPosition = _playerTransform.localPosition;
-            currentTransformPosition = Vector3.Lerp(currentTransformPosition, _nextWantedPosition, _movementInterpolationSpeed * Time.deltaTime);
-            _playerTransform.localPosition = currentTransformPosition;
         }
 
         private void PlayerCollisionCheck(Vector3 checkDirection, int collisionLayerMask)
@@ -176,17 +163,6 @@ namespace Scripts.PlayerController.Platformer
             }
         }
 
-        private void SetPlayerParentObject(Transform platformTransform)
-        {
-            if (_playerTransform.parent == platformTransform)
-            {
-                return;
-            }
-
-            var lastLocalPosition = _playerTransform.localPosition;
-            _playerTransform.SetParent(platformTransform, true);
-        }
-
         public void SetHorizontalInput(float horizontalInput)
         {
             _horizontalInput = horizontalInput;
@@ -196,5 +172,7 @@ namespace Scripts.PlayerController.Platformer
         {
             _didRequestJump = true;
         }
+
+        public Vector3 CurrentPlayerLocalPosition => _nextWantedPosition;
     }
 }

@@ -1,4 +1,4 @@
-﻿namespace Scripts.PlayerController.Platformer
+﻿namespace Scripts.Player.Platformer
 {
     public interface IPlayerController
     {
