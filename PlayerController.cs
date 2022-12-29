@@ -5,8 +5,9 @@ namespace Scripts.Player.Platformer
 {
     public class PlayerController : MonoBehaviour, IPlayerController, IReadPlayerValues
     {
-        public PlayerProperties playerProperties; // The scriptable object with the gameplay properties
+        private PlayerProperties _playerProperties; // The scriptable object with the gameplay properties
 
+        private bool _enabled = false;
         private bool _isGrounded = false;        // Flag to track whether the player is grounded
         private int _jumpsRemaining = 0;         // The number of jumps remaining
         private Vector3 _velocity = Vector3.zero; // The current velocity of the 
@@ -18,8 +19,18 @@ namespace Scripts.Player.Platformer
         private bool _didRequestJump = false;
         private float _horizontalInput;
         
+        public void Inject(PlayerProperties playerProperties)
+        {
+            _playerProperties = playerProperties;
+        }
+
         private void FixedUpdate()
         {
+            if (!_enabled)
+            {
+                return;
+            }
+            
             HorizontalMovementVelocityUpdate();
 
             HandleJumpRequested();
@@ -43,10 +54,10 @@ namespace Scripts.Player.Platformer
 
         private void CheckCollisions()
         {
-            PlayerCollisionCheck(Vector3.up, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.left, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.right, playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.down, playerProperties.groundLayer);
+            PlayerCollisionCheck(Vector3.up, _playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.left, _playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.right, _playerProperties.solidGroundLayer);
+            PlayerCollisionCheck(Vector3.down, _playerProperties.groundLayer);
         }
 
         private void UpdateVelocityAndNextPosition()
@@ -61,7 +72,7 @@ namespace Scripts.Player.Platformer
             if (!_isGrounded)
             {
                 // Apply gravity to the player
-                _velocity += Vector3.down * playerProperties.gravity;
+                _velocity += Vector3.down * _playerProperties.gravity;
             }
         }
 
@@ -69,19 +80,19 @@ namespace Scripts.Player.Platformer
         {
             if (_isGrounded || Math.Abs(_horizontalInput) > 0.5f || _velocity.y < 0)
             {
-                _velocity.x = _horizontalInput * playerProperties.moveSpeed;
+                _velocity.x = _horizontalInput * _playerProperties.moveSpeed;
             }
         }
 
         private void HandleJumpRequested()
         {
-            if (!_isGrounded && _jumpsRemaining >= playerProperties.maxJumps)
+            if (!_isGrounded && _jumpsRemaining >= _playerProperties.maxJumps)
             {
-                _jumpsRemaining = playerProperties.maxJumps - 1;
+                _jumpsRemaining = _playerProperties.maxJumps - 1;
             }
             if (_didRequestJump && (_isGrounded || _jumpsRemaining > 0))
             {
-                _velocity.y = playerProperties.jumpForce;
+                _velocity.y = _playerProperties.jumpForce;
                 _jumpsRemaining--;
             }
 
@@ -94,7 +105,7 @@ namespace Scripts.Player.Platformer
             var velocityInDirection = Vector3.Dot(checkDirection, _velocity);
             var velocityFactorToAdd = velocityInDirection < 0 ? velocityInDirection * Time.deltaTime : 0;
 
-            var groundCheckDistance = Math.Abs(Vector3.Dot(checkDirection, playerProperties.CharacterSize) * 0.5f);
+            var groundCheckDistance = Math.Abs(Vector3.Dot(checkDirection, _playerProperties.CharacterSize) * 0.5f);
             var rayDistance = groundCheckDistance + velocityFactorToAdd;
             var rayEndPosition = _nextWantedPosition + checkDirection * rayDistance;
             var directionCheckIsDown = checkDirection.y < 0;
@@ -115,7 +126,7 @@ namespace Scripts.Player.Platformer
 
                     if (_isGrounded)
                     {
-                        _jumpsRemaining = playerProperties.maxJumps;
+                        _jumpsRemaining = _playerProperties.maxJumps;
                         /*if (!wasAlreadyGrounded)
                         {
                             _myGroundInitialPosition = hit.transform.position;
@@ -162,7 +173,12 @@ namespace Scripts.Player.Platformer
                 }
             }
         }
-
+        
+        public void ConnectController()
+        {
+            _enabled = true;
+        }
+        
         public void SetHorizontalInput(float horizontalInput)
         {
             _horizontalInput = horizontalInput;
