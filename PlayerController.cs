@@ -5,23 +5,43 @@ namespace Scripts.Player.Platformer
 {
     public class PlayerController : MonoBehaviour, IPlayerController, IReadPlayerValues
     {
+        public int Id { get; private set; }
+
         private PlayerProperties _playerProperties; // The scriptable object with the gameplay properties
 
         private bool _enabled = false;
-        private bool _isGrounded = false;        // Flag to track whether the player is grounded
-        private int _jumpsRemaining = 0;         // The number of jumps remaining
+        private bool _isGrounded = false;         // Flag to track whether the player is grounded
+        private int _jumpsRemaining = 0;          // The number of jumps remaining
         private Vector3 _velocity = Vector3.zero; // The current velocity of the 
         private Vector3 _currentVelocity = Vector3.zero;
+
         private Vector3 _nextWantedPosition = Vector3.zero;
         // private Vector3 _myGroundInitialPosition = Vector3.zero;
         // private Vector3 _myGroundPositionOffset = Vector3.zero;
 
         private bool _didRequestJump = false;
         private float _horizontalInput;
-        
-        public void Inject(PlayerProperties playerProperties)
+
+        private Ray _ray;
+
+        private static readonly (Vector2 direction, LayerMask layerMask)[] CollisionDirections = {
+            (Vector2.up, 0),
+            (Vector2.left, 0),
+            (Vector2.right, 0),
+            (Vector2.down, 0)
+        };
+    
+        public void Inject(PlayerProperties playerProperties, int id, Vector3 startPosition)
         {
             _playerProperties = playerProperties;
+            Id = id;
+
+            CollisionDirections[0].layerMask = _playerProperties.solidGroundLayer;
+            CollisionDirections[1].layerMask = _playerProperties.solidGroundLayer;
+            CollisionDirections[2].layerMask = _playerProperties.solidGroundLayer;
+            CollisionDirections[3].layerMask = _playerProperties.groundLayer;
+
+            _nextWantedPosition = startPosition;
         }
 
         private void FixedUpdate()
@@ -54,10 +74,13 @@ namespace Scripts.Player.Platformer
 
         private void CheckCollisions()
         {
-            PlayerCollisionCheck(Vector3.up, _playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.left, _playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.right, _playerProperties.solidGroundLayer);
-            PlayerCollisionCheck(Vector3.down, _playerProperties.groundLayer);
+            _ray.origin = _nextWantedPosition;
+            for (var i = 0; i < CollisionDirections.Length; i++)
+            {
+                var collisionDirection = CollisionDirections[i];
+                _ray.direction = collisionDirection.direction;
+                PlayerCollisionCheck(collisionDirection.layerMask);
+            }
         }
 
         private void UpdateVelocityAndNextPosition()
@@ -99,8 +122,9 @@ namespace Scripts.Player.Platformer
             _didRequestJump = false;
         }
 
-        private void PlayerCollisionCheck(Vector3 checkDirection, int collisionLayerMask)
+        private void PlayerCollisionCheck(int collisionLayerMask)
         {
+            var checkDirection = _ray.direction;
             // Check if the player is grounded by casting a ray down from the player's position
             var velocityInDirection = Vector3.Dot(checkDirection, _velocity);
             var velocityFactorToAdd = velocityInDirection < 0 ? velocityInDirection * Time.deltaTime : 0;
@@ -181,7 +205,7 @@ namespace Scripts.Player.Platformer
         
         public void SetHorizontalInput(float horizontalInput)
         {
-            _horizontalInput = horizontalInput;
+            _horizontalInput = Math.Clamp(horizontalInput, -1, 1);
         }
 
         public void RequestJump()
