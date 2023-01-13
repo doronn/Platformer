@@ -6,5 +6,6 @@
         void ConnectController();
         void SetHorizontalInput(float horizontalInput);
         void RequestJump();
+        void SetConstantVerticalSpeed(float speed);
     }
 }

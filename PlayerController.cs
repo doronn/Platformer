@@ -16,11 +16,16 @@ namespace Scripts.Player.Platformer
         private Vector3 _currentVelocity = Vector3.zero;
 
         private Vector3 _nextWantedPosition = Vector3.zero;
-        // private Vector3 _myGroundInitialPosition = Vector3.zero;
-        // private Vector3 _myGroundPositionOffset = Vector3.zero;
 
         private bool _didRequestJump = false;
+        private int _remainingJumpBuffer = 0;
+        private int _remainingGroundBuffer = 0;
         private float _horizontalInput;
+
+        private int _fixedUpdatesToCatchup = 0;
+        private float _lastFrameReminder = 0f;
+        private Vector3 _constantVelocity;
+        private Vector3 _currentConstantVelocity = Vector3.zero;
 
         private Ray _ray;
 
@@ -44,9 +49,16 @@ namespace Scripts.Player.Platformer
             _nextWantedPosition = startPosition;
         }
 
-        private void FixedUpdate()
+        private void Update()
         {
             if (!_enabled)
+            {
+                return;
+            }
+
+            CalculateNextUpdatesCatchup();
+
+            if (_fixedUpdatesToCatchup == 0)
             {
                 return;
             }
@@ -57,11 +69,21 @@ namespace Scripts.Player.Platformer
 
             ApplyGravity();
             
-            UpdateVelocityAndNextPosition();
+            CalculateCurrentVelocity();
 
             CheckCollisions();
-
+            
+            UpdateNextPosition();
             // AccountForGroundMovement();
+            _currentConstantVelocity = Vector3.zero;
+        }
+
+        private void CalculateNextUpdatesCatchup()
+        {
+            var elapsedFixedUpdates = (Time.deltaTime / Time.fixedDeltaTime) + _lastFrameReminder;
+            _fixedUpdatesToCatchup = (int)Math.Floor(elapsedFixedUpdates);
+            _lastFrameReminder = elapsedFixedUpdates - _fixedUpdatesToCatchup;
+            _currentConstantVelocity += Time.deltaTime * _constantVelocity;
         }
 
         /*private void AccountForGroundMovement()
@@ -74,20 +96,29 @@ namespace Scripts.Player.Platformer
 
         private void CheckCollisions()
         {
-            _ray.origin = _nextWantedPosition;
+            _ray.origin = CurrentPlayerLocalPosition;
             for (var i = 0; i < CollisionDirections.Length; i++)
             {
                 var collisionDirection = CollisionDirections[i];
                 _ray.direction = collisionDirection.direction;
                 PlayerCollisionCheck(collisionDirection.layerMask);
             }
+
+            if (!_isGrounded && _remainingGroundBuffer > 0)
+            {
+                _isGrounded = true;
+                _remainingGroundBuffer -= _fixedUpdatesToCatchup;
+            }
         }
 
-        private void UpdateVelocityAndNextPosition()
+        private void UpdateNextPosition()
         {
-            _currentVelocity = _velocity * Time.deltaTime;
             _nextWantedPosition += _currentVelocity;
-            // _myGroundPositionOffset = Vector3.zero;
+        }
+
+        private void CalculateCurrentVelocity()
+        {
+            _currentVelocity = _velocity * Time.fixedDeltaTime + _currentConstantVelocity;
         }
 
         private void ApplyGravity()
@@ -95,7 +126,7 @@ namespace Scripts.Player.Platformer
             if (!_isGrounded)
             {
                 // Apply gravity to the player
-                _velocity += Vector3.down * _playerProperties.gravity;
+                _velocity += Vector3.down * (_playerProperties.gravity * _fixedUpdatesToCatchup);
             }
         }
 
@@ -103,40 +134,56 @@ namespace Scripts.Player.Platformer
         {
             if (_isGrounded || Math.Abs(_horizontalInput) > 0.5f || _velocity.y < 0)
             {
-                _velocity.x = _horizontalInput * _playerProperties.moveSpeed;
+                _velocity.x = _horizontalInput * _playerProperties.moveSpeed * _fixedUpdatesToCatchup;
             }
         }
 
         private void HandleJumpRequested()
         {
-            if (!_isGrounded && _jumpsRemaining >= _playerProperties.maxJumps)
+            var didJump = false;
+            if (_isGrounded)
+            {
+                _jumpsRemaining = _playerProperties.maxJumps;
+            }
+            else if (_jumpsRemaining >= _playerProperties.maxJumps)
             {
                 _jumpsRemaining = _playerProperties.maxJumps - 1;
             }
+            
             if (_didRequestJump && (_isGrounded || _jumpsRemaining > 0))
             {
+                didJump = true;
                 _velocity.y = _playerProperties.jumpForce;
                 _jumpsRemaining--;
+                _remainingGroundBuffer = 0;
             }
 
-            _didRequestJump = false;
+            if (!didJump && _remainingJumpBuffer > 0)
+            {
+                _remainingJumpBuffer -= _fixedUpdatesToCatchup;
+            }
+            else
+            {
+                _didRequestJump = false;
+                _remainingJumpBuffer = 0;
+            }
         }
 
         private void PlayerCollisionCheck(int collisionLayerMask)
         {
             var checkDirection = _ray.direction;
             // Check if the player is grounded by casting a ray down from the player's position
-            var velocityInDirection = Vector3.Dot(checkDirection, _velocity);
-            var velocityFactorToAdd = velocityInDirection < 0 ? velocityInDirection * Time.deltaTime : 0;
+            var velocityInDirection = Vector3.Dot(checkDirection, _currentVelocity);
+            var velocityFactorToAdd = Math.Abs(velocityInDirection);
 
             var groundCheckDistance = Math.Abs(Vector3.Dot(checkDirection, _playerProperties.CharacterSize) * 0.5f);
             var rayDistance = groundCheckDistance + velocityFactorToAdd;
-            var rayEndPosition = _nextWantedPosition + checkDirection * rayDistance;
+            var rayEndPosition = CurrentPlayerLocalPosition + checkDirection * rayDistance;
             var directionCheckIsDown = checkDirection.y < 0;
-            if (Physics.Raycast(_nextWantedPosition, checkDirection, out var hit, rayDistance, collisionLayerMask))
+            if (Physics.Raycast(CurrentPlayerLocalPosition, checkDirection, out var hit, rayDistance, collisionLayerMask))
             {
                 // Set the player as grounded if it is falling onto the platform from above
-                Debug.DrawLine(_nextWantedPosition, hit.point, Color.blue);
+                Debug.DrawLine(CurrentPlayerLocalPosition, hit.point, Color.blue);
                 Debug.DrawLine(hit.point, rayEndPosition, Color.red);
                 var hitHorizontalForHorizontalDirectionCheck = hit.normal.x < 0 != checkDirection.x < 0;
                 var hitVerticalForVerticalDirectionCheck = hit.normal.y < 0 != directionCheckIsDown;
@@ -150,37 +197,34 @@ namespace Scripts.Player.Platformer
 
                     if (_isGrounded)
                     {
-                        _jumpsRemaining = _playerProperties.maxJumps;
-                        /*if (!wasAlreadyGrounded)
-                        {
-                            _myGroundInitialPosition = hit.transform.position;
-                        }
-                        else
-                        {
-                            var curentGroundPosition = hit.transform.position;
-                            _myGroundPositionOffset = curentGroundPosition - _myGroundInitialPosition;
-                            _myGroundInitialPosition = curentGroundPosition;
-                        }*/
+                        _remainingGroundBuffer = _playerProperties.GroundBuffer;
                     }
 
                     // Set the player's X, Y positions to the X, Y positions of the collision point
-                    var position = _nextWantedPosition;
-                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck
+                    var collisionForVelocityInCheckDirection = checkDirection.x < 0 == _velocity.x < 0;
+                    var position = CurrentPlayerLocalPosition;
+                    var nextXPosition = hitHorizontalForHorizontalDirectionCheck && collisionForVelocityInCheckDirection
                         ? hit.collider.ClosestPointOnBounds(hit.point).x + -checkDirection.x * groundCheckDistance
                         : position.x;
-                    
+
+                    if (hitHorizontalForHorizontalDirectionCheck && collisionForVelocityInCheckDirection)
+                    {
+                        _velocity.x = 0f;
+                        _currentVelocity.x = 0;
+                    }
+
                     var shouldBlockOnVerticalCollision = hitVerticalForVerticalDirectionCheck && (!directionCheckIsDown || _isGrounded);
                     var nextYPosition = shouldBlockOnVerticalCollision
                         ? hit.collider.ClosestPointOnBounds(hit.point).y + -checkDirection.y * groundCheckDistance
                         : position.y;
                     position =
-                        new Vector3(nextXPosition, nextYPosition, position.z);
+                        new Vector3(nextXPosition - (position.x - _nextWantedPosition.x), nextYPosition - (position.y - _nextWantedPosition.y), position.z);
                     _nextWantedPosition = position;
 
                     if (shouldBlockOnVerticalCollision)
                     {
                         _velocity.y = 0f;
-                        _currentVelocity.y = 0;
+                        _currentVelocity.y = _currentConstantVelocity.y;
                     }
                 }
                 else if (directionCheckIsDown)
@@ -190,7 +234,7 @@ namespace Scripts.Player.Platformer
             }
             else
             {
-                Debug.DrawLine(_nextWantedPosition, rayEndPosition, Color.blue);
+                Debug.DrawLine(CurrentPlayerLocalPosition, rayEndPosition, Color.blue);
                 if (directionCheckIsDown)
                 {
                     _isGrounded = false;
@@ -211,6 +255,12 @@ namespace Scripts.Player.Platformer
         public void RequestJump()
         {
             _didRequestJump = true;
+            _remainingJumpBuffer = _playerProperties.JumpBuffer;
+        }
+
+        public void SetConstantVerticalSpeed(float speed)
+        {
+            _constantVelocity = Vector3.down * speed;
         }
 
         public Vector3 CurrentPlayerLocalPosition => _nextWantedPosition;

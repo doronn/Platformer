@@ -13,5 +13,9 @@ namespace Scripts.Player.Platformer
         public LayerMask solidGroundLayer;       // The layer mask for the non passable ground colliders (that cannot be jumped through)
         public int maxJumps = 1;                 // The maximum number of jumps allowed
         public Vector3 CharacterSize = Vector3.one;       // The size of the character
+        [Tooltip("The amount of fixed updates to let a jump press be valid afterwards")]
+        public int JumpBuffer;
+        [Tooltip("The amount of fixed updates to let the player be considered grounded when falling off a ledge")]
+        public int GroundBuffer;
     }
 }
