@@ -12,6 +12,8 @@ namespace Scripts.Player.Platformer
         private bool _enabled = false;
         private bool _isGrounded = false;         // Flag to track whether the player is grounded
         private int _jumpsRemaining = 0;          // The number of jumps remaining
+        private float _jumpForcePercentage = 1f;
+        private float _movementSpeedPercentage = 1f;
         private Vector3 _velocity = Vector3.zero; // The current velocity of the 
         private Vector3 _currentVelocity = Vector3.zero;
 
@@ -27,6 +29,8 @@ namespace Scripts.Player.Platformer
         private Vector3 _constantVelocity;
         private Vector3 _currentConstantVelocity = Vector3.zero;
 
+        private float _consecutiveMovementDistanceWhileGrounded = 0f;
+
         private Ray _ray;
 
         private static readonly (Vector2 direction, LayerMask layerMask)[] CollisionDirections = {
@@ -35,7 +39,10 @@ namespace Scripts.Player.Platformer
             (Vector2.right, 0),
             (Vector2.down, 0)
         };
-    
+
+        private float _boostForMovementDistance;
+
+
         public void Inject(PlayerProperties playerProperties, int id, Vector3 startPosition)
         {
             _playerProperties = playerProperties;
@@ -65,6 +72,8 @@ namespace Scripts.Player.Platformer
             
             HorizontalMovementVelocityUpdate();
 
+            CalculateBoostDueToConsecutiveMovement();
+            
             HandleJumpRequested();
 
             ApplyGravity();
@@ -76,6 +85,11 @@ namespace Scripts.Player.Platformer
             UpdateNextPosition();
             // AccountForGroundMovement();
             _currentConstantVelocity = Vector3.zero;
+        }
+
+        private void CalculateBoostDueToConsecutiveMovement()
+        {
+            _boostForMovementDistance = 1 + _playerProperties.JumpBoostForGroundedMovementDistance.Evaluate(_consecutiveMovementDistanceWhileGrounded);
         }
 
         private void CalculateNextUpdatesCatchup()
@@ -114,6 +128,11 @@ namespace Scripts.Player.Platformer
         private void UpdateNextPosition()
         {
             _nextWantedPosition += _currentVelocity;
+
+            if (_isGrounded)
+            {
+                _consecutiveMovementDistanceWhileGrounded += Math.Abs(_currentVelocity.x);
+            }
         }
 
         private void CalculateCurrentVelocity()
@@ -126,7 +145,18 @@ namespace Scripts.Player.Platformer
             if (!_isGrounded)
             {
                 // Apply gravity to the player
-                _velocity += Vector3.down * (_playerProperties.gravity * _fixedUpdatesToCatchup);
+                _velocity += Vector3.down * (_playerProperties.gravity * _fixedUpdatesToCatchup *
+                                             (_jumpForcePercentage / 2f));
+
+                _consecutiveMovementDistanceWhileGrounded -=
+                    Time.fixedDeltaTime * _fixedUpdatesToCatchup * _velocity.y < 0
+                        ? _playerProperties.ConsecutiveMovementDampingWhileFalling
+                        : _playerProperties.ConsecutiveMovementDampingWhileJumping;
+                
+                if (_consecutiveMovementDistanceWhileGrounded < 1)
+                {
+                    _consecutiveMovementDistanceWhileGrounded = 0;
+                }
             }
         }
 
@@ -134,7 +164,7 @@ namespace Scripts.Player.Platformer
         {
             if (_isGrounded || Math.Abs(_horizontalInput) > 0.5f || _velocity.y < 0)
             {
-                _velocity.x = _horizontalInput * _playerProperties.moveSpeed * _fixedUpdatesToCatchup;
+                _velocity.x = _horizontalInput * _playerProperties.moveSpeed * _fixedUpdatesToCatchup * _boostForMovementDistance;
             }
         }
 
@@ -153,7 +183,7 @@ namespace Scripts.Player.Platformer
             if (_didRequestJump && (_isGrounded || _jumpsRemaining > 0))
             {
                 didJump = true;
-                _velocity.y = _playerProperties.jumpForce;
+                _velocity.y = _playerProperties.jumpForce * _jumpForcePercentage * _boostForMovementDistance;
                 _jumpsRemaining--;
                 _remainingGroundBuffer = 0;
             }
@@ -195,7 +225,7 @@ namespace Scripts.Player.Platformer
                         _isGrounded = _velocity.y <= 0;
                     }
 
-                    if (_isGrounded)
+                    if (!wasAlreadyGrounded && _isGrounded)
                     {
                         _remainingGroundBuffer = _playerProperties.GroundBuffer;
                     }
@@ -249,7 +279,7 @@ namespace Scripts.Player.Platformer
         
         public void SetHorizontalInput(float horizontalInput)
         {
-            _horizontalInput = Math.Clamp(horizontalInput, -1, 1);
+            _horizontalInput = Math.Clamp(horizontalInput, -_movementSpeedPercentage, _movementSpeedPercentage);
         }
 
         public void RequestJump()
@@ -261,6 +291,16 @@ namespace Scripts.Player.Platformer
         public void SetConstantVerticalSpeed(float speed)
         {
             _constantVelocity = Vector3.down * speed;
+        }
+
+        public void SetJumpForcePercentage(float jumpForcePercentage)
+        {
+            _jumpForcePercentage = jumpForcePercentage;
+        }
+
+        public void SetMovementSpeedPercentage(float movementSpeedPercentage)
+        {
+            _movementSpeedPercentage = movementSpeedPercentage;
         }
 
         public Vector3 CurrentPlayerLocalPosition => _nextWantedPosition;

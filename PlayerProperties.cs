@@ -17,5 +17,9 @@ namespace Scripts.Player.Platformer
         public int JumpBuffer;
         [Tooltip("The amount of fixed updates to let the player be considered grounded when falling off a ledge")]
         public int GroundBuffer;
+
+        public AnimationCurve JumpBoostForGroundedMovementDistance;
+        public float ConsecutiveMovementDampingWhileJumping;
+        public float ConsecutiveMovementDampingWhileFalling;
     }
 }

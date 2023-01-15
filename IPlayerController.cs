@@ -7,5 +7,7 @@
         void SetHorizontalInput(float horizontalInput);
         void RequestJump();
         void SetConstantVerticalSpeed(float speed);
+        void SetJumpForcePercentage(float jumpForcePercentage);
+        void SetMovementSpeedPercentage(float movementSpeedPercentage);
     }
 }
